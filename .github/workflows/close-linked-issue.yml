@@ -1,0 +1,53 @@
+name: Close linked issue on merge to selected branches
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  pull-requests: read
+  issues: write
+  contents: read
+
+jobs:
+  close-issue:
+    if: >
+      github.event.pull_request.merged == true &&
+      contains(fromJson('["develop","staging","main"]'), github.event.pull_request.base.ref)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close issue from PR body or branch name
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const body = pr.body || "";
+            const branchName = pr.head.ref;
+
+            // 1) PR 본문에서 Closes/Fixes/Resolves #123 추출 우선
+            let match = body.match(/(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s*:?\s+#(\d+)/i);
+
+            // 2) 없으면 브랜치명(type/123-description)에서 추출
+            if (!match) {
+              match = branchName.match(/^[^/]+\/(\d+)(?:-|$)/);
+            }
+
+            if (!match) {
+              core.info("No issue number found in PR body or branch name.");
+              return;
+            }
+
+            const issueNumber = Number(match[1]);
+
+            // 이슈 닫기
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              state: "closed"
+            });
+
+            core.info(`Closed issue #${issueNumber} from merged PR #${pr.number}`);
