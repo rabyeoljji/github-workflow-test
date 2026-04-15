@@ -1,0 +1,66 @@
+name: Add Related Issue to PR body
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  update-pr-body:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update PR body with managed block
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const branchName = pr.head.ref;
+            const body = pr.body || "";
+
+            const match = branchName.match(/\/(\d+)(?:-|$)/);
+
+            if (!match) {
+              core.info(`No issue number found after '/' in branch name: ${branchName}`);
+              return;
+            }
+
+            const issueNumber = match[1];
+
+            const start = "<!-- RELATED_ISSUE_START -->";
+            const end = "<!-- RELATED_ISSUE_END -->";
+
+            const managedBlock = [
+              start,
+              "## Related Issue",
+              `Closes #${issueNumber}`,
+              end
+            ].join("\n");
+
+            const blockRegex = new RegExp(`${start}[\\s\\S]*?${end}`, "m");
+
+            let newBody;
+            if (blockRegex.test(body)) {
+              newBody = body.replace(blockRegex, managedBlock);
+            } else {
+              newBody = body.trim()
+                ? `${body.trim()}\n\n${managedBlock}`
+                : managedBlock;
+            }
+
+            if (newBody === body) {
+              core.info("PR body is already up to date.");
+              return;
+            }
+
+            await github.rest.pulls.update({
+              owner,
+              repo,
+              pull_number: pr.number,
+              body: newBody
+            });
